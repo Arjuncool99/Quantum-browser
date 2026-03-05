@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Lunar Browser</title>
+  <title>Quantum Browser</title>
+  <link rel="icon" type="image/png" href="/logo.png"/>
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet"/>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -50,11 +51,7 @@
       background: var(--surface);
       border-bottom: 1px solid var(--border);
       position: relative;
-      z-index: 10;
-      flex-shrink: 0;
-    }
-
-    .logo {
+      z-index: 20;
       display: flex;
       align-items: center;
       gap: 8px;
@@ -253,12 +250,19 @@
 
     .new-tab-btn:hover { background: var(--surface2); color: var(--text); border-color: var(--accent); }
 
+    #particleCanvas {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 1;
+    }
+
     .browser-content {
       flex: 1;
       position: relative;
       overflow: hidden;
-      background: var(--bg);
-      z-index: 1;
+      background: transparent;
+      z-index: 2;
     }
 
     .frame-wrapper {
@@ -495,6 +499,8 @@
 </head>
 <body>
 
+<canvas id="particleCanvas"></canvas>
+
 <!-- Load Ultraviolet + BareMux FIRST before any other scripts -->
 <script src="/uv/uv.bundle.js"></script>
 <script src="/uv/uv.config.js"></script>
@@ -506,8 +512,8 @@
 <!-- Top Bar -->
 <div class="topbar">
   <div class="logo">
-    <div class="logo-icon">🌙</div>
-    <span class="logo-text">Lunar</span>
+    <div class="logo-icon"><img src="/logo.png" style="width:22px;height:22px;object-fit:contain;border-radius:4px;" onerror="this.style.display='none';this.nextSibling.style.display='inline'"/><span style="display:none">⚛️</span></div>
+    <span class="logo-text">Quantum</span>
   </div>
 
   <div class="nav-controls">
@@ -531,10 +537,10 @@
 
 <!-- Browser Content -->
 <div class="browser-content" id="browserContent">
-  <div class="new-tab-page" id="newTabPage">
+  <div class="new-tab-page hidden" id="newTabPage">
     <div class="new-tab-logo">
-      <div class="new-tab-moon">🌙</div>
-      <div class="new-tab-title">Lunar Browser</div>
+      <img src="/logo.png" style="width:220px;max-width:80vw;object-fit:contain;filter:drop-shadow(0 0 30px rgba(124,106,255,0.5));" onerror="this.outerHTML='<div class=new-tab-moon>⚛️</div>'"/>
+      <div class="new-tab-title">Quantum Browser</div>
     </div>
 
     <div class="new-tab-search">
@@ -599,9 +605,15 @@
     return tabs.find(t => t.id === activeTabId);
   }
 
+  function updateNavButtons() {
+    const tab = currentTab();
+    document.getElementById('backBtn').disabled = !tab || tab.historyIndex <= 0;
+    document.getElementById('fwdBtn').disabled = !tab || tab.historyIndex >= tab.history.length - 1;
+  }
+
   function createTab(url = '') {
     const id = generateId();
-    const tab = { id, url, title: 'New Tab', favicon: '🌙' };
+    const tab = { id, url, title: 'New Tab', favicon: '⚛️', history: [], historyIndex: -1 };
     tabs.push(tab);
 
     const tabEl = document.createElement('div');
@@ -633,7 +645,12 @@
     document.getElementById('browserContent').appendChild(wrapper);
 
     switchTab(id);
-    if (url) navigate(url);
+    if (url) {
+      navigate(url);
+    } else {
+      document.getElementById('newTabPage').classList.remove('hidden');
+      wrapper.classList.remove('active');
+    }
 
     return id;
   }
@@ -658,12 +675,15 @@
 
       if (!tab.url) {
         document.getElementById('newTabPage').classList.remove('hidden');
+        // Hide the iframe when showing new tab page
+        document.querySelector(`.frame-wrapper[data-tab-id="${id}"]`)?.classList.remove('active');
       } else if (tab.blocked) {
         document.getElementById('errorPage').classList.remove('hidden');
         document.getElementById('errorUrl').textContent = tab.url;
         document.querySelector(`.frame-wrapper[data-tab-id="${id}"]`)?.classList.remove('active');
       }
     }
+    updateNavButtons();
   }
 
   function closeTab(id) {
@@ -696,7 +716,14 @@
 
     tab.url = url;
     tab.blocked = false;
+
+    // Push to history stack
+    tab.history = tab.history.slice(0, tab.historyIndex + 1);
+    tab.history.push(url);
+    tab.historyIndex = tab.history.length - 1;
+
     document.getElementById('addressInput').value = url;
+    updateNavButtons();
 
     const wrapper = document.querySelector(`.frame-wrapper[data-tab-id="${tab.id}"]`);
     const iframe = wrapper?.querySelector('iframe');
@@ -777,6 +804,36 @@
     }
   }
 
+  document.getElementById('backBtn').addEventListener('click', () => {
+    const tab = currentTab();
+    if (tab && tab.historyIndex > 0) {
+      tab.historyIndex--;
+      const url = tab.history[tab.historyIndex];
+      tab.url = url;
+      document.getElementById('addressInput').value = url;
+      updateNavButtons();
+      const wrapper = document.querySelector(`.frame-wrapper[data-tab-id="${tab.id}"]`);
+      const iframe = wrapper?.querySelector('iframe');
+      const proxyUrl = __uv$config.prefix + __uv$config.encodeUrl(url);
+      if (iframe) iframe.src = proxyUrl;
+    }
+  });
+
+  document.getElementById('fwdBtn').addEventListener('click', () => {
+    const tab = currentTab();
+    if (tab && tab.historyIndex < tab.history.length - 1) {
+      tab.historyIndex++;
+      const url = tab.history[tab.historyIndex];
+      tab.url = url;
+      document.getElementById('addressInput').value = url;
+      updateNavButtons();
+      const wrapper = document.querySelector(`.frame-wrapper[data-tab-id="${tab.id}"]`);
+      const iframe = wrapper?.querySelector('iframe');
+      const proxyUrl = __uv$config.prefix + __uv$config.encodeUrl(url);
+      if (iframe) iframe.src = proxyUrl;
+    }
+  });
+
   document.getElementById('tabsBar').addEventListener('click', e => {
     if (e.target.classList.contains('tab-close')) {
       e.stopPropagation();
@@ -813,7 +870,7 @@
       const wrapper = document.querySelector(`.frame-wrapper[data-tab-id="${tab.id}"]`);
       wrapper?.querySelector('iframe')?.setAttribute('src', 'about:blank');
       wrapper?.classList.remove('active');
-      updateTabTitle(tab.id, 'New Tab', '🌙');
+      updateTabTitle(tab.id, 'New Tab', '⚛️');
       document.getElementById('statusText').textContent = 'Ready';
     }
   });
@@ -823,12 +880,65 @@
     if (tab?.url) navigate(tab.url);
   });
 
+  // Initialize immediately
   createTab();
+  document.getElementById('newTabPage').classList.remove('hidden');
+  sessionStorage.setItem('showHome', '1');
 
-  // Register service worker immediately on page load
+  // Register service worker in background
   registerSW()
     .then(() => console.log('SW ready'))
     .catch(err => console.warn('SW registration failed:', err));
+
+  // If page reloaded due to SW activation, show homepage again
+  if (sessionStorage.getItem('showHome') === '1') {
+    document.getElementById('newTabPage').classList.remove('hidden');
+  }
+
+  navigator.serviceWorker?.addEventListener('controllerchange', () => {
+    sessionStorage.setItem('showHome', '1');
+    document.getElementById('newTabPage').classList.remove('hidden');
+  });
+</script>
+
+<!-- Particle animation -->
+<script>
+  const canvas = document.getElementById('particleCanvas');
+  const ctx = canvas.getContext('2d');
+  function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+  resize();
+  window.addEventListener('resize', resize);
+  const particles = Array.from({ length: 60 }, () => ({
+    x: Math.random() * window.innerWidth, y: Math.random() * window.innerHeight,
+    r: Math.random() * 1.5 + 0.3, dx: (Math.random() - 0.5) * 0.4, dy: (Math.random() - 0.5) * 0.4,
+    alpha: Math.random() * 0.5 + 0.1, color: Math.random() > 0.5 ? '124,106,255' : '167,139,250'
+  }));
+  function drawParticles() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    for (let i = 0; i < particles.length; i++) {
+      for (let j = i + 1; j < particles.length; j++) {
+        const dx = particles[i].x - particles[j].x, dy = particles[i].y - particles[j].y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist < 120) {
+          ctx.beginPath();
+          ctx.strokeStyle = `rgba(124,106,255,${0.08*(1-dist/120)})`;
+          ctx.lineWidth = 0.5;
+          ctx.moveTo(particles[i].x, particles[i].y);
+          ctx.lineTo(particles[j].x, particles[j].y);
+          ctx.stroke();
+        }
+      }
+    }
+    particles.forEach(p => {
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2);
+      ctx.fillStyle = `rgba(${p.color},${p.alpha})`; ctx.fill();
+      p.x += p.dx; p.y += p.dy;
+      if (p.x < 0 || p.x > canvas.width) p.dx *= -1;
+      if (p.y < 0 || p.y > canvas.height) p.dy *= -1;
+    });
+    requestAnimationFrame(drawParticles);
+  }
+  drawParticles();
 </script>
 
 </body>
