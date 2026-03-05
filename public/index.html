@@ -706,7 +706,7 @@
     const looksLikeUrl = /^https?:\/\//i.test(url) || /^[a-zA-Z0-9-]+\.[a-zA-Z]{2,}/.test(url);
 
     if (!looksLikeUrl) {
-      url = `https://www.google.com/search?q=${encodeURIComponent(url)}`;
+      url = `https://duckduckgo.com/?q=${encodeURIComponent(url)}`;
     } else if (!/^https?:\/\//i.test(url)) {
       url = 'https://' + url;
     }
