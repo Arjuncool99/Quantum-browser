@@ -553,6 +553,24 @@
       ⚡ Powered by Ultraviolet proxy — bypasses site embedding restrictions.
     </div>
 
+    <button onclick="stealthMode()" style="
+      background: linear-gradient(135deg, #1a1a26, #12121a);
+      border: 1px solid #2a2a3d;
+      color: #a78bfa;
+      padding: 10px 24px;
+      border-radius: 10px;
+      font-family: 'Syne', sans-serif;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s;
+    " onmouseover="this.style.borderColor='#7c6aff';this.style.boxShadow='0 0 20px rgba(124,106,255,0.2)'" onmouseout="this.style.borderColor='#2a2a3d';this.style.boxShadow='none'">
+      🥷 Open in about:blank
+    </button>
+
     <div class="quick-links">
       <div class="quick-link" onclick="navigate('https://wikipedia.org')">
         <span class="quick-link-icon">📖</span>
@@ -879,6 +897,29 @@
     const tab = currentTab();
     if (tab?.url) navigate(tab.url);
   });
+
+  function stealthMode() {
+    const win = window.open('about:blank', '_blank');
+    if (!win) {
+      alert('Please allow popups for this site to use Stealth Mode!');
+      return;
+    }
+    win.document.open();
+    win.document.write(`<!DOCTYPE html>
+<html>
+<head>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #000; width: 100vw; height: 100vh; overflow: hidden; }
+  iframe { width: 100%; height: 100%; border: none; }
+</style>
+</head>
+<body>
+<iframe src="${location.origin}" allowfullscreen allow="fullscreen"></iframe>
+</body>
+</html>`);
+    win.document.close();
+  }
 
   // Initialize immediately
   createTab();
