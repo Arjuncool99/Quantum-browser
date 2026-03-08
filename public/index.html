@@ -260,46 +260,7 @@ input[type=range].rng{accent-color:var(--accent);width:110px}
 <canvas id="particleCanvas"></canvas>
 <div class="bg-layer" id="bgLayer"></div>
 
-<!-- SW Force Cleanup: unregisters any broken/stale service workers before registering fresh -->
-<script>
-(function() {
-  if (!('serviceWorker' in navigator)) return;
-  // Unregister ALL existing service workers, then reload once to get a clean slate
-  navigator.serviceWorker.getRegistrations().then(function(regs) {
-    if (!regs.length) return;
-    var needsReload = false;
-    var promises = regs.map(function(reg) {
-      // Only nuke SWs that aren't the UV one (or are broken/waiting)
-      var swUrl = reg.active ? reg.active.scriptURL : (reg.installing ? reg.installing.scriptURL : '');
-      var isUV = swUrl.indexOf('uv.sw') !== -1 || swUrl.indexOf('sw.js') !== -1;
-      if (!isUV || reg.waiting) {
-        needsReload = true;
-        return reg.unregister();
-      }
-      return Promise.resolve();
-    });
-    Promise.all(promises).then(function() {
-      if (needsReload && !sessionStorage.getItem('sw_cleaned')) {
-        sessionStorage.setItem('sw_cleaned', '1');
-        location.reload();
-      }
-    });
-  }).catch(function(){});
-
-  // Also clear any caches that might be stale
-  if ('caches' in window) {
-    caches.keys().then(function(keys) {
-      keys.forEach(function(key) {
-        // Only delete non-UV caches
-        if (key.indexOf('uv') === -1 && key.indexOf('bare') === -1) {
-          caches.delete(key);
-        }
-      });
-    }).catch(function(){});
-  }
-})();
-</script>
-
+<!-- UV Scripts (loaded on real server) -->
 <script src="/uv/uv.bundle.js"></script>
 <script src="/uv/uv.config.js"></script>
 <script src="/baremux/index.js"></script>
@@ -952,46 +913,8 @@ function navTo(rawUrl) {
     } catch(e) { doProxy(); }
   };
 
-  // Robust SW registration — forces activation even if SW is stuck waiting
-  var doRegisterSW = function() {
-    if (!('serviceWorker' in navigator)) { setupProxy(); return; }
-    navigator.serviceWorker.getRegistrations().then(function(regs) {
-      // Check if a valid UV SW is already active
-      var hasActive = regs.some(function(r) {
-        return r.active && (r.active.scriptURL.indexOf('uv.sw') !== -1 || r.active.scriptURL.indexOf('sw.js') !== -1);
-      });
-      if (hasActive) { setupProxy(); return; }
-      // Try registerSW() from register-sw.js
-      try {
-        var p = registerSW();
-        if (p && p.then) {
-          p.then(function() {
-            // Force any waiting SW to activate immediately
-            navigator.serviceWorker.getRegistrations().then(function(regs2) {
-              regs2.forEach(function(r) {
-                if (r.waiting) r.waiting.postMessage({type:'SKIP_WAITING'});
-              });
-              setupProxy();
-            }).catch(setupProxy);
-          }).catch(function() {
-            // registerSW failed, try manual registration
-            navigator.serviceWorker.register('/uv/uv.sw.js', {scope: '/uv/service/'})
-              .then(function(reg) {
-                if (reg.waiting) reg.waiting.postMessage({type:'SKIP_WAITING'});
-                setupProxy();
-              }).catch(setupProxy);
-          });
-        } else { setupProxy(); }
-      } catch(e) {
-        navigator.serviceWorker.register('/uv/uv.sw.js', {scope: '/uv/service/'})
-          .then(function(reg) {
-            if (reg.waiting) reg.waiting.postMessage({type:'SKIP_WAITING'});
-            setupProxy();
-          }).catch(setupProxy);
-      }
-    }).catch(function() { setupProxy(); });
-  };
-  doRegisterSW();
+  try { registerSW().then(setupProxy).catch(setupProxy); }
+  catch(e) { setupProxy(); }
 }
 
 function showError(url) {
@@ -1235,23 +1158,59 @@ function doPanic() { window.location.href = cfg.panicUrl || 'https://classroom.g
 // ═══════════════════════════════════════════════
 // MUSIC
 // ═══════════════════════════════════════════════
-var PLAYLIST = ['Lo-Fi Chill Beats', 'Study Session', 'Night Drive', 'Focus Flow', 'Quantum Vibes'];
-var mIdx = 0, mPlaying = false, mProg = 0, mTimer = null;
+var PLAYLIST = [
+  {title:'Lo-Fi Chill Beats', url:'/music/lofi.mp3'},
+  {title:'Study Session',     url:'/music/study.mp3'},
+  {title:'Night Drive',       url:'/music/night.mp3'},
+  {title:'Focus Flow',        url:'/music/focus.mp3'},
+  {title:'Quantum Vibes',     url:'/music/vibes.mp3'},
+];
+var mIdx = 0, mPlaying = false, mTimer = null;
+var mAudio = new Audio();
+mAudio.addEventListener('ended', function() { musicNext(); if (mPlaying) mAudio.play(); });
+mAudio.addEventListener('timeupdate', function() {
+  if (mAudio.duration) {
+    document.getElementById('musicFill').style.width = (mAudio.currentTime / mAudio.duration * 100) + '%';
+  }
+});
+mAudio.addEventListener('error', function() {
+  document.getElementById('musicTitle').textContent = PLAYLIST[mIdx].title + ' (not found)';
+});
+
 function toggleMusic() { document.getElementById('musicBar').classList.toggle('show'); }
 function musicPlayPause() {
   mPlaying = !mPlaying;
   document.getElementById('musicPlayBtn').textContent = mPlaying ? '⏸' : '▶';
   if (mPlaying) {
-    mTimer = setInterval(function() {
-      mProg = Math.min(mProg + 0.4, 100);
-      document.getElementById('musicFill').style.width = mProg + '%';
-      if (mProg >= 100) musicNext();
-    }, 300);
-  } else { clearInterval(mTimer); }
+    if (!mAudio.src || mAudio.src === window.location.href) {
+      mAudio.src = PLAYLIST[mIdx].url;
+      document.getElementById('musicTitle').textContent = PLAYLIST[mIdx].title;
+    }
+    mAudio.play().catch(function() { mPlaying = false; document.getElementById('musicPlayBtn').textContent = '▶'; });
+  } else {
+    mAudio.pause();
+  }
 }
-function musicNext() { mProg = 0; mIdx = (mIdx+1) % PLAYLIST.length; document.getElementById('musicTitle').textContent = PLAYLIST[mIdx]; document.getElementById('musicFill').style.width = '0%'; }
-function musicPrev() { mProg = 0; mIdx = (mIdx-1+PLAYLIST.length) % PLAYLIST.length; document.getElementById('musicTitle').textContent = PLAYLIST[mIdx]; document.getElementById('musicFill').style.width = '0%'; }
-function musicSeek(e) { var r = e.currentTarget.getBoundingClientRect(); mProg = (e.clientX-r.left)/r.width*100; document.getElementById('musicFill').style.width = mProg + '%'; }
+function musicNext() {
+  mIdx = (mIdx + 1) % PLAYLIST.length;
+  mAudio.src = PLAYLIST[mIdx].url;
+  document.getElementById('musicTitle').textContent = PLAYLIST[mIdx].title;
+  document.getElementById('musicFill').style.width = '0%';
+  if (mPlaying) mAudio.play().catch(function(){});
+}
+function musicPrev() {
+  mIdx = (mIdx - 1 + PLAYLIST.length) % PLAYLIST.length;
+  mAudio.src = PLAYLIST[mIdx].url;
+  document.getElementById('musicTitle').textContent = PLAYLIST[mIdx].title;
+  document.getElementById('musicFill').style.width = '0%';
+  if (mPlaying) mAudio.play().catch(function(){});
+}
+function musicSeek(e) {
+  var r = e.currentTarget.getBoundingClientRect();
+  var pct = (e.clientX - r.left) / r.width;
+  if (mAudio.duration) { mAudio.currentTime = pct * mAudio.duration; }
+  document.getElementById('musicFill').style.width = (pct * 100) + '%';
+}
 
 // ═══════════════════════════════════════════════
 // CURSOR & SOUND
@@ -1358,20 +1317,8 @@ document.addEventListener('keydown', function(e) {
   // Auto-dismiss after bar animation finishes (2s delay + 1.2s anim = ~2.2s), plus safety fallbacks
   setTimeout(dismissStartup, 2200);
   setTimeout(dismissStartup, 3500);
-  // Pre-register SW on load for faster first navigation
-  if ('serviceWorker' in navigator) {
-    try {
-      registerSW().then(function() {
-        navigator.serviceWorker.getRegistrations().then(function(regs) {
-          regs.forEach(function(r) { if (r.waiting) r.waiting.postMessage({type:'SKIP_WAITING'}); });
-        }).catch(function(){});
-      }).catch(function() {
-        navigator.serviceWorker.register('/uv/uv.sw.js', {scope:'/uv/service/'}).catch(function(){});
-      });
-    } catch(e) {
-      navigator.serviceWorker.register('/uv/uv.sw.js', {scope:'/uv/service/'}).catch(function(){});
-    }
-  }
+  // Register SW
+  try { registerSW().then(function(){}).catch(function(){}); } catch(e) {}
 })();
 </script>
 
